@@ -19,13 +19,10 @@ void MoveGaSolution(GaSolution_t* const from, GaSolution_t* const to) {
     from->genes = NULL;
 }
 
-GaSolution_t CopyGaSolution (const GaSolution_t* const from) {
-    GaSolution_t to;
+GaSolution_t CopyGaSolution(const GaSolution_t* const from) {
+    GaSolution_t to = (GaSolution_t){.numberOfGenes = from->numberOfGenes, .fitness = from->fitness};
 
-    to.fitness = from->fitness;
-    to.numberOfGenes = from->numberOfGenes;
-
-    to.genes = (uint32_t*) malloc(to.numberOfGenes * sizeof(uint32_t));
+    to.genes = (byte*) malloc(to.numberOfGenes * sizeof(byte));
     for (uint64_t i = 0; i < to.numberOfGenes; i++) {
             to.genes[i] = from->genes[i];
     }
@@ -34,17 +31,15 @@ GaSolution_t CopyGaSolution (const GaSolution_t* const from) {
 }
 
 GaSolution_t GaSolution(const uint16_t numberOfGenes, const enum bool isRandomGenes) {
-    GaSolution_t solution;
-    solution.numberOfGenes = numberOfGenes;
-    solution.genes = (uint32_t*) malloc(numberOfGenes * sizeof(uint32_t));
+    GaSolution_t solution = (GaSolution_t){.numberOfGenes = numberOfGenes, .fitness = 0.0};
+
+    solution.genes = (byte*) malloc(numberOfGenes * sizeof(byte));
 
     if (isRandomGenes == true) {
         for (uint64_t i = 0; i < numberOfGenes; i++) {
-            solution.genes[i] = GenerateRandomU32();
+            solution.genes[i] = GenerateRandomByte();
         }
     }
-
-    solution.fitness = 0.0;
 
     return solution;
 }
@@ -87,15 +82,16 @@ void MoveGeneticAlgorithm(GeneticAlgorithm_t* const from, GeneticAlgorithm_t* co
 }
 
 GeneticAlgorithm_t CopyGeneticAlgorithm(const GeneticAlgorithm_t* const from) {
-    GeneticAlgorithm_t to;
-
-    to.popSize                 = from->popSize;
-    to.mutationRate            = from->mutationRate;
-    to.crossoverRate           = from->crossoverRate;
-    to.groupSize               = from->groupSize;
-    to.numberOfGenes           = from->numberOfGenes;
-    to.numberOfGenerations     = from->numberOfGenerations;
-    to.fitnessEvaluationFn     = from->fitnessEvaluationFn;
+    GeneticAlgorithm_t to = (GeneticAlgorithm_t){
+        .fitnessEvaluationFn = from->fitnessEvaluationFn,
+        .popSize = from->popSize,
+        .mutationRate = from->mutationRate,
+        .crossoverRate = from->crossoverRate,
+        .groupSize = from->groupSize,
+        .numberOfGenes = from->numberOfGenes,
+        .numberOfGenerations = from->numberOfGenerations,
+        .block = from->block
+    };
 
     to.population = (GaSolution_t*) malloc(to.popSize * sizeof(GaSolution_t));
     for (uint64_t i = 0; i < to.popSize; i++) {
@@ -116,20 +112,18 @@ GeneticAlgorithm_t GeneticAlgorithm(
     const uint16_t groupSize,
     const uint16_t numberOfGenes,
     const uint16_t numberOfGenerations,
-    double (* const fitnessEvaluationFn)(const uint32_t* const genes)
+    double (* const fitnessEvaluationFn)(const byte* const genes)
 ) {
-    GeneticAlgorithm_t ga;
-    ga.popSize              = popSize;
-    ga.mutationRate         = mutationRate;
-    ga.crossoverRate        = crossoverRate;
-    ga.groupSize            = groupSize;
-    ga.numberOfGenes        = numberOfGenes;
-    ga.numberOfGenerations  = numberOfGenerations;
-    ga.fitnessEvaluationFn  = fitnessEvaluationFn;
-
-    ga.population = NULL;
-
-    ga.block = false;
+    GeneticAlgorithm_t ga = (GeneticAlgorithm_t){
+        .fitnessEvaluationFn = fitnessEvaluationFn,
+        .popSize = popSize,
+        .mutationRate = mutationRate,
+        .crossoverRate = crossoverRate,
+        .groupSize = groupSize,
+        .numberOfGenes = numberOfGenes,
+        .numberOfGenerations = numberOfGenerations,
+        .block = false
+    };
 
     if (groupSize > popSize) {
         printf("\nGroup size cannot be greater population size!");
@@ -151,20 +145,21 @@ GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_
     uint32_t crossIndex = ga->numberOfGenes + 1;
     uint32_t mutateMask = 0;
     uint32_t mutateIndex = ga->numberOfGenes + 1;
+    const byte bitsPerGene = 8;
 
     if (GenerateRandomU32() % 100000 < ga->crossoverRate) {
         // crossover
-        bitPosition = 1 + (GenerateRandomU32() % (32 * ga->numberOfGenes - 1)); // N between 1 and 32*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
-        crossIndex = bitPosition / 32; // get the index of the u32 array in which the bit must be
-		crossMask = (1 << (bitPosition % 32)) - 1; // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
+        bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
+        crossIndex = bitPosition / bitsPerGene; // get the index of the byte array in which the bit must be
+		crossMask = (1 << (bitPosition % bitsPerGene)) - 1; // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
     }
 
     if (GenerateRandomU32() % 100000 < ga->mutationRate) {
         //mutation
-		bitPosition = 1 + (GenerateRandomU32() % (32 * ga->numberOfGenes - 1)); // N between 1 and 32*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
+		bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
 
-		mutateIndex = bitPosition / 32; // get the index of the u32 array in which the bit must be
-		mutateMask = (1 << (bitPosition % (32 - 1))); // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
+		mutateIndex = bitPosition / bitsPerGene; // get the index of the byte array in which the bit must be
+		mutateMask = (1 << (bitPosition % (bitsPerGene - 1))); // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
     }
 
     GaSolution_t solution = GaSolution(ga->numberOfGenes, false);
@@ -202,14 +197,8 @@ void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePri
 		printf("\nGenetic algorithm not initialised properly. Will not run.");
 		return;
 	}
+    
 	CreatePopulation(ga);
-
-    GaSolution_t t = GenerateChild(ga, &(ga->population[1]), &(ga->population[2]));
-
-    MoveGaSolution(
-        &t,
-        &(ga->population[0])
-        );
 
 	for (uint32_t i = 0; i < ga->numberOfGenerations; i++) {
 		EvaluatePopFitness(ga);
@@ -219,6 +208,7 @@ void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePri
 }
 
 void EvaluatePopFitness(GeneticAlgorithm_t* const ga) {
+    // this could be easily parrallised! TODO: multithread
     for (uint64_t i = 0; i < ga->popSize; i++) {
         ga->population[i].fitness = ga->fitnessEvaluationFn(
             ga->population[i].genes
@@ -231,6 +221,7 @@ void EvaluatePopFitness(GeneticAlgorithm_t* const ga) {
 }
 
 void TournamentSelection(GeneticAlgorithm_t* const ga) {
+    // this may be parallelised? TODO: multithread
     GaSolution_t* nextGen = (GaSolution_t*) malloc(ga->popSize * sizeof(GaSolution_t));    
     const GaSolution_t *mother, *father;
 
@@ -301,4 +292,8 @@ uint32_t GenerateRandomU32() {
 	}
 
 	return u32RandomNumber;
+}
+
+byte GenerateRandomByte() {
+	return rand() % 256;
 }

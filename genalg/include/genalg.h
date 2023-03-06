@@ -13,15 +13,16 @@
 #include <stdint.h>
 
 enum bool {false, true};
+typedef unsigned char byte;
 
 GENALG_IMEX typedef struct {
     double fitness;
-    uint32_t* genes;
+    byte* genes;
     uint16_t numberOfGenes;
 } GaSolution_t;
 
 GENALG_IMEX typedef struct {
-    double (*fitnessEvaluationFn)(const uint32_t * const genes);
+    double (*fitnessEvaluationFn)(const byte * const genes);
     uint32_t popSize;
     uint32_t mutationRate;
 	uint32_t crossoverRate;
@@ -51,12 +52,13 @@ GENALG_IMEX GeneticAlgorithm_t GeneticAlgorithm(
     const uint16_t groupSize,
     const uint16_t numberOfGenes,
     const uint16_t numberOfGenerations,
-    double (* const fitnessEvaluationFn)(const uint32_t* const genes)
+    double (* const fitnessEvaluationFn)(const byte* const genes)
 );
 
 GENALG_IMEX void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePrintOutput);
 
 uint32_t GenerateRandomU32();
+byte GenerateRandomByte();
 GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_t* const mother, const GaSolution_t* const father);
 void CreatePopulation(GeneticAlgorithm_t* const ga);
 
