@@ -14,10 +14,12 @@ message("\tProcessor: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 # Building genalg library
 project(genalg)
 add_library(genalg SHARED ./genalg/main.c)
+target_compile_options(genalg PRIVATE -Wall)
 
 set(GENALG_LIB_INCLUDE "${CMAKE_SOURCE_DIR}/genalg/include")
 target_include_directories(genalg PRIVATE "${GENALG_LIB_INCLUDE}")
 target_compile_definitions(genalg PRIVATE GENALG_EXPORT)
+
 add_custom_command(
     TARGET genalg POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E copy
@@ -40,6 +42,7 @@ endif()
 # Building usage example
 project(usage_example)
 add_executable(usage_example ./usage_example/main.c)
+target_compile_options(usage_example PRIVATE -Wall)
 
 add_dependencies(usage_example genalg)
 target_include_directories(usage_example PRIVATE "${OUTDIR}/include")

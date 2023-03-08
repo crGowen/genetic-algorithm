@@ -1,6 +1,7 @@
 #include "genalg.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 // GaSolution constructors/destructors
@@ -10,22 +11,11 @@ void FreeGaSolution(GaSolution_t* const solution) {
     }
 }
 
-void MoveGaSolution(GaSolution_t* const from, GaSolution_t* const to) {
-    FreeGaSolution(to);
-
-    to->fitness = from->fitness;
-    to->numberOfGenes = from->numberOfGenes;
-    to->genes = from->genes;
-    from->genes = NULL;
-}
-
 GaSolution_t CopyGaSolution(const GaSolution_t* const from) {
-    GaSolution_t to = (GaSolution_t){.numberOfGenes = from->numberOfGenes, .fitness = from->fitness};
+    GaSolution_t to = *from;
 
     to.genes = (byte*) malloc(to.numberOfGenes * sizeof(byte));
-    for (uint64_t i = 0; i < to.numberOfGenes; i++) {
-            to.genes[i] = from->genes[i];
-    }
+    memcpy(to.genes, from->genes, to.numberOfGenes * sizeof(byte));
     
     return to;
 }
@@ -44,9 +34,6 @@ GaSolution_t GaSolution(const uint16_t numberOfGenes, const enum bool isRandomGe
     return solution;
 }
 
-
-
-
 // GeneticAlgorithm constructors/destructors
 void FreePopulation(GeneticAlgorithm_t* const ga) {
     if (ga->population != NULL) {
@@ -60,49 +47,6 @@ void FreePopulation(GeneticAlgorithm_t* const ga) {
 void FreeGeneticAlgorithm(GeneticAlgorithm_t* const ga) {
     FreePopulation(ga);
     FreeGaSolution(&(ga->bestSolution));
-}
-
-void MoveGeneticAlgorithm(GeneticAlgorithm_t* const from, GeneticAlgorithm_t* const to) {
-    FreeGeneticAlgorithm(to);
-
-    to->popSize                 = from->popSize;
-    to->mutationRate            = from->mutationRate;
-    to->crossoverRate           = from->crossoverRate;
-    to->groupSize               = from->groupSize;
-    to->numberOfGenes           = from->numberOfGenes;
-    to->numberOfGenerations     = from->numberOfGenerations;
-    to->fitnessEvaluationFn     = from->fitnessEvaluationFn;
-
-    to->population = from->population;
-    from->population = NULL;
-
-    to->block = from->block;
-
-    MoveGaSolution(&(from->bestSolution), &(to->bestSolution));
-}
-
-GeneticAlgorithm_t CopyGeneticAlgorithm(const GeneticAlgorithm_t* const from) {
-    GeneticAlgorithm_t to = (GeneticAlgorithm_t){
-        .fitnessEvaluationFn = from->fitnessEvaluationFn,
-        .popSize = from->popSize,
-        .mutationRate = from->mutationRate,
-        .crossoverRate = from->crossoverRate,
-        .groupSize = from->groupSize,
-        .numberOfGenes = from->numberOfGenes,
-        .numberOfGenerations = from->numberOfGenerations,
-        .block = from->block
-    };
-
-    to.population = (GaSolution_t*) malloc(to.popSize * sizeof(GaSolution_t));
-    for (uint64_t i = 0; i < to.popSize; i++) {
-            to.population[i] = CopyGaSolution(&(from->population[i]));
-    }
-
-    to.block = from->block;
-
-    to.bestSolution = CopyGaSolution(&(from->bestSolution));
-
-    return to;
 }
 
 GeneticAlgorithm_t GeneticAlgorithm(
@@ -138,7 +82,6 @@ GeneticAlgorithm_t GeneticAlgorithm(
 
 
 // All other functions
-
 GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_t* const mother, const GaSolution_t* const father) {
     uint32_t bitPosition;
     uint32_t crossMask = 0;
@@ -279,7 +222,7 @@ const GaSolution_t* GetBestContender(const GeneticAlgorithm_t* const ga, const G
     return bestContender;
 }
 
-uint32_t GenerateRandomU32() {
+uint32_t GenerateRandomU32(void) {
     // existing randomisation functions weren't being random enough, not even <random>
 	// so this function should be a little more random
 
@@ -287,13 +230,13 @@ uint32_t GenerateRandomU32() {
 
 	for (uint64_t i = 0; i < 2; i++) {
 		const uint16_t u16IntermediateRandom = rand() % 65536;
-		const uint8_t u8Offset = i * 16;
+		const uint64_t u8Offset = i * 16;
 		u32RandomNumber += (u16IntermediateRandom << u8Offset);
 	}
 
 	return u32RandomNumber;
 }
 
-byte GenerateRandomByte() {
+byte GenerateRandomByte(void) {
 	return rand() % 256;
 }

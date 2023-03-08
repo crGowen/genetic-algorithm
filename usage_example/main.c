@@ -16,7 +16,7 @@ double eval(const byte* const genes) {
     return difference * (-1);
 }
 
-int main() {
+int main(void) {
     // init algorithm with:
     GeneticAlgorithm_t ga = GeneticAlgorithm(
         2000,       // 2000 population size
