@@ -20,8 +20,8 @@ int main(void) {
     // init algorithm with:
     GeneticAlgorithm_t ga = GeneticAlgorithm(
         2000,       // 2000 population size
-        85000,      // 85,000/100,000 (85%) mutation rate
-        25000,      // 25,000/100,000 (25%) crossover rate
+        85,         // 85/100 (85%) mutation rate
+        25,         // 25/100 (25%) crossover rate
         3,          // 3 tournament selection group size
         8,          // 8 genes (1 gene = 1 byte)
         200,        // 200 generations

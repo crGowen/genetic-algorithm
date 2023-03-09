@@ -4,55 +4,16 @@
 #include <string.h>
 #include <time.h>
 
-// GaSolution constructors/destructors
-void FreeGaSolution(GaSolution_t* const solution) {
-    if (solution->genes != NULL) {
-        free(solution->genes);
-    }
-}
-
-GaSolution_t CopyGaSolution(const GaSolution_t* const from) {
-    GaSolution_t to = *from;
-
-    to.genes = (byte*) malloc(to.numberOfGenes * sizeof(byte));
-    memcpy(to.genes, from->genes, to.numberOfGenes * sizeof(byte));
-    
-    return to;
-}
-
-GaSolution_t GaSolution(const uint16_t numberOfGenes, const enum bool isRandomGenes) {
-    GaSolution_t solution = (GaSolution_t){.numberOfGenes = numberOfGenes, .fitness = 0.0};
-
-    solution.genes = (byte*) malloc(numberOfGenes * sizeof(byte));
-
-    if (isRandomGenes == true) {
-        for (uint64_t i = 0; i < numberOfGenes; i++) {
-            solution.genes[i] = GenerateRandomByte();
-        }
-    }
-
-    return solution;
-}
-
-// GeneticAlgorithm constructors/destructors
-void FreePopulation(GeneticAlgorithm_t* const ga) {
-    if (ga->population != NULL) {
-        for (uint64_t i = 0; i < ga->popSize; i++) {
-            FreeGaSolution(&(ga->population[i]));
-        }
-        free(ga->population);
-    }
-}
-
 void FreeGeneticAlgorithm(GeneticAlgorithm_t* const ga) {
-    FreePopulation(ga);
-    FreeGaSolution(&(ga->bestSolution));
+    free(ga->populationGenes);
+    free(ga->populationFitness);
+    free(ga->bestSolution.genes);
 }
 
 GeneticAlgorithm_t GeneticAlgorithm(
     const uint32_t popSize,
-    const uint32_t mutationRate,
-    const uint32_t crossoverRate,
+    const uint8_t mutationRate,
+    const uint8_t crossoverRate,
     const uint16_t groupSize,
     const uint16_t numberOfGenes,
     const uint16_t numberOfGenerations,
@@ -82,7 +43,7 @@ GeneticAlgorithm_t GeneticAlgorithm(
 
 
 // All other functions
-GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_t* const mother, const GaSolution_t* const father) {
+void GenerateChild(const GeneticAlgorithm_t* const ga, byte* child, const byte* const mother, const byte* const father) {
     uint32_t bitPosition;
     uint32_t crossMask = 0;
     uint32_t crossIndex = ga->numberOfGenes + 1;
@@ -90,14 +51,14 @@ GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_
     uint32_t mutateIndex = ga->numberOfGenes + 1;
     const byte bitsPerGene = 8;
 
-    if (GenerateRandomU32() % 100000 < ga->crossoverRate) {
+    if (GenerateRandomByte() % 100 < ga->crossoverRate) {
         // crossover
         bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
         crossIndex = bitPosition / bitsPerGene; // get the index of the byte array in which the bit must be
 		crossMask = (1 << (bitPosition % bitsPerGene)) - 1; // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
     }
 
-    if (GenerateRandomU32() % 100000 < ga->mutationRate) {
+    if (GenerateRandomByte() % 100 < ga->mutationRate) {
         //mutation
 		bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
 
@@ -105,33 +66,36 @@ GaSolution_t GenerateChild(const GeneticAlgorithm_t* const ga, const GaSolution_
 		mutateMask = (1 << (bitPosition % (bitsPerGene - 1))); // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
     }
 
-    GaSolution_t solution = GaSolution(ga->numberOfGenes, false);
-
     for (uint32_t i = 0; i < ga->numberOfGenes; i++) {
 		// crossover (aka where the mother's DNA meets the father's ... no, not like that)
 		if (i < crossIndex)
-			solution.genes[i] = mother->genes[i];
+			child[i] = mother[i];
 		else if (i > crossIndex)
-			solution.genes[i] = father->genes[i];
+			child[i] = father[i];
 		else
-			solution.genes[i] = (mother->genes[i] & crossMask) + (father->genes[i] & ~crossMask);
+			child[i] = (mother[i] & crossMask) + (father[i] & ~crossMask);
 
 		// mutation (aka flip a single bit)
 		if (i == mutateIndex)
-			solution.genes[i] = (solution.genes[i] & ~mutateMask) + (~(solution.genes[i]) & mutateMask);
+			child[i] = (child[i] & ~mutateMask) + (~(child[i]) & mutateMask);
 	}
-
-	return solution;
 }
 
 void CreatePopulation(GeneticAlgorithm_t* const ga) {
-    ga->population = (GaSolution_t*) malloc(ga->popSize * sizeof(GaSolution_t));
+    const uint64_t popGenesMemSize = ga->popSize * ga->numberOfGenes * sizeof(byte);
+    ga->populationGenes = (byte*) malloc(popGenesMemSize);
+    ga->populationFitness = (double*) malloc(ga->popSize * sizeof(double));
 
-    for (uint64_t i = 0; i < ga->popSize; i++) {
-        ga->population[i] = GaSolution(ga->numberOfGenes, true);
+
+    for (uint64_t i = 0; i < popGenesMemSize; i++) {
+        ga->populationGenes[i] = GenerateRandomByte();
     }
 
-    ga->bestSolution = GaSolution(ga->numberOfGenes, true);
+    ga->bestSolution.genes = (byte*) malloc(ga->numberOfGenes * sizeof(byte));
+    for (uint32_t i = 0; i < (ga->numberOfGenes * sizeof(byte)); i++) {
+        ga->bestSolution.genes[i] = GenerateRandomByte();
+    }
+
     ga->bestSolution.fitness = ga->fitnessEvaluationFn(ga->bestSolution.genes);
 }
 
@@ -152,74 +116,70 @@ void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePri
 
 void EvaluatePopFitness(GeneticAlgorithm_t* const ga) {
     // this could be easily parrallised! TODO: multithread
-    for (uint64_t i = 0; i < ga->popSize; i++) {
-        ga->population[i].fitness = ga->fitnessEvaluationFn(
-            ga->population[i].genes
+    for (uint32_t i = 0; i < ga->popSize; i++) {
+        ga->populationFitness[i] = ga->fitnessEvaluationFn(
+            &(ga->populationGenes[i * ga->numberOfGenes])
         );
 
-        if (ga->population[i].fitness > ga->bestSolution.fitness) {
-            ga->bestSolution = CopyGaSolution(&(ga->population[i]));
+        if (ga->populationFitness[i] > ga->bestSolution.fitness) {
+            for (uint32_t j = 0; j < ga->numberOfGenes; j++) {
+                ga->bestSolution.genes[j] = ga->populationGenes[i * ga->numberOfGenes + j];
+                ga->bestSolution.fitness = ga->populationFitness[i];
+            }
         }
     }
 }
 
 void TournamentSelection(GeneticAlgorithm_t* const ga) {
     // this may be parallelised? TODO: multithread
-    GaSolution_t* nextGen = (GaSolution_t*) malloc(ga->popSize * sizeof(GaSolution_t));    
-    const GaSolution_t *mother, *father;
+    byte* nextGenGenes = (byte*) malloc(ga->popSize * ga->numberOfGenes * sizeof(byte));    
+    const byte *mother, *father;
 
     for (uint32_t i = 0; i < ga->popSize; i++) {
-        mother = GetBestContender(ga, NULL);
-        father = GetBestContender(ga, mother);
+        mother = GetBestContenderGenes(ga, NULL);
+        father = GetBestContenderGenes(ga, mother);
 
-        nextGen[i] = GenerateChild(ga, mother, father);
+        GenerateChild(ga, &(nextGenGenes[i * ga->numberOfGenes]), mother, father);
     }
 
-    FreePopulation(ga);
-    ga->population = nextGen;
+    free(ga->populationGenes);
+    ga->populationGenes = nextGenGenes;
     
 }
 
-const GaSolution_t* GetBestContender(const GeneticAlgorithm_t* const ga, const GaSolution_t* const dontSelect) {
-    // Array of pointers to contenders
-    const GaSolution_t** contenders = (const GaSolution_t**) malloc(ga->groupSize * sizeof(GaSolution_t*));
-    const GaSolution_t* bestContender;
+const byte* GetBestContenderGenes(const GeneticAlgorithm_t* const ga, const byte* const dontSelect) {
+    uint32_t* contenders = (uint32_t*) malloc(ga->groupSize * sizeof(uint32_t));
+    uint32_t bestContender;
     enum bool isUniqueContender;
-
-    // clear the list of contenders
-    for (uint32_t i = 0; i < ga->groupSize; i++) {
-        contenders[i] = NULL;
-    }
 
     // get <groupSize> unique contenders
     for (uint32_t i = 0; i < ga->groupSize; i++) {
         isUniqueContender = false;
-        GaSolution_t* randomSolution = NULL;
+        uint32_t randomSolution;
         while (isUniqueContender == false) {
-            uint32_t randomSolutionIndex = GenerateRandomU32() % ga->popSize;
-            randomSolution = &(ga->population[randomSolutionIndex]);
-
+            randomSolution = GenerateRandomU32() % ga->popSize;
             // check that the contender isn't the same as in the "dontSelect" argument (i.e. already selected mother)
-            isUniqueContender = !(randomSolution == dontSelect);
+            const byte* const randomSolutionGeneAddr = &(ga->populationGenes[randomSolution * ga->numberOfGenes]);
+            isUniqueContender = !(randomSolutionGeneAddr == dontSelect);
 
             // check that the contender isn't the same as any of the other contenders selected
             for (uint32_t j = 0; isUniqueContender == true && j < ga->groupSize; j++) {
                 if (contenders[j] == randomSolution) isUniqueContender = false;
             }
         }
-        if (randomSolution != NULL) contenders[i] = randomSolution;
+        contenders[i] = randomSolution;
     }
 
     // of the <groupSize> random contenders we just selected, find the best
     bestContender = contenders[0];
 	for (uint32_t i = 0; i < ga->groupSize; i++) {
-		if ((contenders[i]->fitness) > (bestContender->fitness)) {
+		if ((ga->populationFitness[contenders[i]]) > (ga->populationFitness[bestContender])) {
 			bestContender = contenders[i];
 		}
 	}
 
     free(contenders);
-    return bestContender;
+    return &(ga->populationGenes[bestContender * ga->numberOfGenes]);
 }
 
 uint32_t GenerateRandomU32(void) {
@@ -228,9 +188,9 @@ uint32_t GenerateRandomU32(void) {
 
 	uint32_t u32RandomNumber = 0;
 
-	for (uint64_t i = 0; i < 2; i++) {
-		const uint16_t u16IntermediateRandom = rand() % 65536;
-		const uint64_t u8Offset = i * 16;
+	for (uint32_t i = 0; i < 2; i++) {
+		const uint32_t u16IntermediateRandom = rand() % 65536;
+		const uint32_t u8Offset = i * 16;
 		u32RandomNumber += (u16IntermediateRandom << u8Offset);
 	}
 
