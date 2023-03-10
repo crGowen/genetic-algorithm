@@ -1,0 +1,18 @@
+name: GenAlg Test
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build using CMake
+        shell: cmd
+        run: mkdir build && cd build && cmake .. && cmake --build . --target test --config Release
+      - name: Run test
+        shell: cmd
+        run: cd output && test.exe
