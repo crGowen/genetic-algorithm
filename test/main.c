@@ -78,7 +78,7 @@ int main(void) {
     const double fitness = ga.bestSolution.fitness;
     double difference;
     
-    // TEST: Fitness value matches return
+    printf("TEST: Fitness value calculated correctly...");
     if (numbers[0] > numbers[1]) {
          difference = (numbers[0] - numbers[1]);
     } else {
@@ -86,23 +86,24 @@ int main(void) {
     }
     difference *= (-1.0);
     if (difference != fitness) {
-        printf("Fitness == fitnessEval test failed! Difference: %f, Fitness: %f\n", difference, fitness);
+        printf("FAIL!\n\tDifference: %f\n\tFitness: %f\n", difference, fitness);
         result |= 32;
-    }
+    } else printf("PASS.\n");
 
-    // TEST: Memory leak
+    
+    printf("TEST: Ensure no memory leak...");
     // if there is no memory leak, the memory that the OS reserved for Run1 will be reused for Run2, therefore little to no process memory change.
     int changeInMemory = memoryUsageFromRun2 - memoryUsageFromRun1;
     if (changeInMemory > 256) {
-        printf("Memory leak test failed! Memory difference: %d\n", changeInMemory);
+        printf("FAIL!\n\tMemory difference: %d\n", changeInMemory);
         result |= 16;
-    }
+    } else printf("PASS.\n");
 
-    // TEST: Fitness is close to 0 (i.e. shows optimisation has occurred)
+    printf("TEST: Optimisation working / fitness value close to 0...");
     if (fitness < -350.0) {
-        printf("Fitness threshold test failed! Fitness: %f\n", fitness);
+        printf("FAIL!\n\tFitness: %f\n", fitness);
         result |= 64;
-    }
+    } else printf("PASS.\n");
     
     FreeGeneticAlgorithm(&ga);
     return result;
