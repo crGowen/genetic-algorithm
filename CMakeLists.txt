@@ -53,3 +53,18 @@ add_custom_command(
         "$<TARGET_FILE:usage_example>"
         "${OUTDIR}/$<TARGET_FILE_NAME:usage_example>"
 )
+
+# Building usage example
+project(test)
+add_executable(test ./test/main.c)
+target_compile_options(test PRIVATE -Wall -O2)
+
+add_dependencies(test genalg)
+target_include_directories(test PRIVATE "${OUTDIR}/include")
+target_link_libraries(test PRIVATE "${OUTDIR}/lib/$<TARGET_LINKER_FILE_NAME:genalg>")
+add_custom_command(
+    TARGET test POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E copy
+        "$<TARGET_FILE:test>"
+        "${OUTDIR}/$<TARGET_FILE_NAME:test>"
+)
