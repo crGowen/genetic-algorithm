@@ -2,7 +2,7 @@
 Generalised genetic algorithm library. Written in C with sacrifices to code-cleaniness for targetting memory and CPU efficiency.
 
 # OS Support
-Can be built with CMake for Windows and Linux, MacOS not supported.
+Can be built with CMake. Tested and working on Windows, Linux, and FreeBSD.
 
 # How To Build:
 ```
