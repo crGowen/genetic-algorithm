@@ -46,6 +46,8 @@ double eval(const byte* const genes) {
 int main(void) {
     int result = 0;
 
+    printf("Running unit tests...\n");
+
     GeneticAlgorithm_t ga = GeneticAlgorithm(
         8000,       // population size
         85,         // % mutation rate
