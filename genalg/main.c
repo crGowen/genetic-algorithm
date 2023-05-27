@@ -3,11 +3,289 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
-void FreeGeneticAlgorithm(GeneticAlgorithm_t* const ga) {
-    free(ga->populationGenes);
-    free(ga->populationFitness);
-    free(ga->bestSolution.genes);
+#define CACHE_LINE_SIZE 64
+
+typedef struct {
+    double (*fitnessEvaluationFn)(const byte * const genes);
+    byte* populationGenes;
+    byte* nextGenGenes;
+    double* populationFitness;
+    pthread_barrier_t* barrier;
+    uint32_t totalPopSize;
+    uint16_t numberOfGenerations;
+    uint16_t groupSize;
+    uint16_t numberOfGenes;
+    uint8_t mutationRate;
+    uint8_t crossoverRate;
+    enum bool enablePrintOutput;
+} CommonGaThreadArgs_t;
+
+typedef struct {
+    CommonGaThreadArgs_t* commonArgs;
+    uint32_t start;
+    uint32_t popSize;
+    uint8_t threadId;
+} GeneticAlgorithmThread_t;
+
+uint32_t GenerateRandomU32(void);
+byte GenerateRandomByte(void);
+void* RunGenAlgThread(void* rawArgs);
+void FreeGeneticAlgorithm(GeneticAlgorithm_t* const ga);
+
+// end of function declarations
+
+
+
+
+void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const uint8_t numThreads, const enum bool enablePrintOutput) {
+    if (ga->block) {
+		printf("\nGenetic algorithm not initialised properly. Will not run.");
+		return;
+	}
+
+    const uint32_t popThreadFactor = CACHE_LINE_SIZE * numThreads;
+
+    ga->popSize = ga->popSize + popThreadFactor - (ga->popSize % popThreadFactor);
+    const uint64_t popGenesMemSize = ga->popSize * ga->numberOfGenes * sizeof(byte);
+
+    byte * populationGenes = (byte*) malloc(popGenesMemSize);
+    byte * nextGenGenes = (byte*) malloc(popGenesMemSize);
+
+    ga->populationFitness = (double*) malloc(ga->popSize * sizeof(double));
+
+
+    for (uint64_t i = 0; i < popGenesMemSize; i++) {
+        populationGenes[i] = GenerateRandomByte();
+        nextGenGenes[i] = GenerateRandomByte();
+    }
+
+    ga->bestSolution.fitness = 0.0;
+
+    GeneticAlgorithmThread_t* threadArgs = (GeneticAlgorithmThread_t*) malloc(numThreads * sizeof(GeneticAlgorithmThread_t));
+
+    const uint32_t popPerThread = ga->popSize / numThreads;
+    pthread_barrier_t barrier;
+    pthread_barrier_init(&barrier, NULL, numThreads);
+
+    CommonGaThreadArgs_t commonArgs = (CommonGaThreadArgs_t){
+        .totalPopSize          = ga->popSize,
+        .fitnessEvaluationFn   = ga->fitnessEvaluationFn,
+        .barrier               = &barrier,
+        .groupSize             = ga->groupSize,
+        .numberOfGenes         = ga->numberOfGenes,
+        .numberOfGenerations   = ga->numberOfGenerations,
+        .mutationRate          = ga->mutationRate,
+        .crossoverRate         = ga->crossoverRate,
+        .populationFitness     = ga->populationFitness,
+        .enablePrintOutput     = enablePrintOutput,
+
+        .populationGenes = populationGenes,
+        .nextGenGenes = nextGenGenes
+    };
+
+    for (int i = 0; i < numThreads; i++) {
+        threadArgs[i].commonArgs            = &commonArgs;
+        threadArgs[i].threadId              = i;
+        threadArgs[i].start                 = i * popPerThread;
+        threadArgs[i].popSize               = popPerThread;
+    }
+
+    pthread_t* threads = (pthread_t*) malloc((numThreads - 1) * sizeof(pthread_t));
+
+    for (int i = 0; i < numThreads - 1; i++) {
+        pthread_create(threads + i, NULL, RunGenAlgThread, (void*)(threadArgs + i + 1));
+    }
+
+    RunGenAlgThread(threadArgs);
+
+    for (int i = 0; i < numThreads - 1; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    pthread_barrier_destroy(&barrier);
+
+    ga->populationGenes = commonArgs.populationGenes;
+
+    // final fitness evaluation
+    enum bool bestFitnessIsAssigned = false;
+    for (uint32_t i = 0; i < ga->popSize; i++) {
+        if (!bestFitnessIsAssigned || ga->populationFitness[i] > ga->bestSolution.fitness) {
+            bestFitnessIsAssigned = true;
+            ga->bestSolution.fitness = ga->populationFitness[i];
+            ga->bestSolution.genes = ga->populationGenes + (i * ga->numberOfGenes);
+        }
+    }
+
+    free(commonArgs.nextGenGenes);
+    free(threadArgs);
+    free(threads);
+}
+
+void* RunGenAlgThread(void* rawArgs) {
+    GeneticAlgorithmThread_t* gaThread = (GeneticAlgorithmThread_t*)rawArgs;
+
+    const uint16_t gens = gaThread->commonArgs->numberOfGenerations;
+    const uint32_t byteOffset = (gaThread->start * gaThread->commonArgs->numberOfGenes);
+    const uint32_t fitnessOffset = gaThread->start;
+    const uint8_t threadId = gaThread->threadId;
+    const uint32_t popSize = gaThread->popSize;
+    const uint32_t totalPopSize = gaThread->commonArgs->totalPopSize;
+    const uint16_t numberOfGenes = gaThread->commonArgs->numberOfGenes;
+    const uint16_t groupSize = gaThread->commonArgs->groupSize;
+    const uint8_t crossoverRate = gaThread->commonArgs->crossoverRate;
+    const uint8_t mutationRate = gaThread->commonArgs->mutationRate;
+    const uint8_t bitsPerGene = 8 * sizeof(byte);
+    const enum bool enablePrintOutput = gaThread->commonArgs->enablePrintOutput;
+
+    uint32_t* contenders = (uint32_t*) malloc(groupSize * sizeof(uint32_t));
+
+    uint32_t bitPosition, crossMask, crossIndex, mutationMask, mutationIndex;
+
+    const double (*fitnessEvaluationFn)(const byte * const genes) = gaThread->commonArgs->fitnessEvaluationFn;
+    double const * populationFitness = gaThread->commonArgs->populationFitness;
+
+    for (uint32_t currentGen = 0; currentGen < gens; currentGen++) {
+        byte*  populationGenes = gaThread->commonArgs->populationGenes;
+        byte*  threadPop = populationGenes + byteOffset;
+        byte*  threadNext = gaThread->commonArgs->nextGenGenes + byteOffset;
+        double* threadFitness = populationFitness + fitnessOffset;
+        double bestFitnessForThread = 0.0;
+        enum bool bestFitnessIsAssigned = false;
+
+        // fitness evaluation
+        for (uint32_t i = 0; i < popSize; i++) {
+            threadFitness[i] = fitnessEvaluationFn(
+                threadPop + (i * numberOfGenes)
+            );
+            if (!bestFitnessIsAssigned || threadFitness[i] > bestFitnessForThread) {
+                bestFitnessIsAssigned = true;
+                bestFitnessForThread = threadFitness[i];
+            }
+        }
+
+        pthread_barrier_wait(gaThread->commonArgs->barrier);
+
+        // tournament selection - needs DRYing
+        const byte *mother, *father;
+        uint32_t motherIndex;
+        for (uint32_t childIndex = 0; childIndex < popSize; childIndex++ ) {
+            // MOTHER
+            // reset contenders
+            for(uint32_t i = 0; i < groupSize; i++) {
+                contenders[i] = 0;
+            }
+
+            // find mother contenders
+            for (uint32_t i = 0; i < groupSize; i++) {
+                enum bool isUniqueContender = false;
+                uint32_t randomSolution;
+                while (isUniqueContender == false) {
+                    isUniqueContender = true;
+                    randomSolution = GenerateRandomU32() % totalPopSize;
+                    for (uint32_t j = 0; isUniqueContender == true && j < groupSize; j++) {
+                        if (contenders[j] == randomSolution) isUniqueContender = false;
+                    }
+                }
+                contenders[i] = randomSolution;
+            }
+            // compare contenders and find the best
+            uint32_t bestContender = contenders[0];
+            for (uint32_t i = 0; i < groupSize; i++) {
+                if (populationFitness[contenders[i]] > populationFitness[bestContender]) bestContender = contenders[i];
+            }
+            motherIndex = bestContender;
+            mother = populationGenes + (bestContender * numberOfGenes);
+
+            // FATHER
+            // reset contenders
+            for(uint32_t i = 0; i < groupSize; i++) {
+                contenders[i] = 0;
+            }
+
+            // find father contenders
+            for (uint32_t i = 0; i < groupSize; i++) {
+                enum bool isUniqueContender = false;
+                uint32_t randomSolution;
+                while (isUniqueContender == false) {
+                    randomSolution = GenerateRandomU32() % totalPopSize;
+                    isUniqueContender = (randomSolution != motherIndex);
+                    for (uint32_t j = 0; isUniqueContender == true && j < groupSize; j++) {
+                        if (contenders[j] == randomSolution) isUniqueContender = false;
+                    }
+                }
+                contenders[i] = randomSolution;
+            }
+            // compare contenders and find the best
+            bestContender = contenders[0];
+            for (uint32_t i = 0; i < groupSize; i++) {
+                if (populationFitness[contenders[i]] > populationFitness[bestContender]) bestContender = contenders[i];
+            }
+            father = populationGenes + (bestContender * numberOfGenes);
+
+            // prepare to generate child
+            crossIndex = numberOfGenes + 1;
+            mutationIndex = numberOfGenes + 1;
+
+            // prepare crossover
+            if (GenerateRandomU32() % 100 < crossoverRate) {
+                // N between 1 and bitsPerGene*numberOfGenes - 1
+                bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * numberOfGenes - 1));
+                // index of the byte array in which the bit must be
+                crossIndex = bitPosition / bitsPerGene;
+                // get bitmask which is all 0s on one side and all 1s on the other side of the bit position
+                crossMask = (1 << (bitPosition % bitsPerGene)) - 1;
+            }
+
+            // prepare mutation
+            if (GenerateRandomU32() % 100 < mutationRate) {
+                // N between 1 and bitsPerGene*numberOfGenes - 1
+                bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * numberOfGenes - 1));
+                // index of the byte array in which the bit must be
+                mutationIndex = bitPosition / bitsPerGene;
+                // get bitmask which is all 0s on one side and all 1s on the other side of the bit position
+                mutationMask = (1 << (bitPosition % bitsPerGene)) - 1;
+            }
+
+            // Generate new child
+            byte* child = threadNext + (childIndex * numberOfGenes);
+            for (uint32_t i = 0; i < numberOfGenes; i++) {
+                // Crossover (where mother and father's DNA meets)
+                if (i < crossIndex) child[i] = mother[i];
+                else if (i > crossIndex) child[i] = father[i];
+                else child[i] = (mother[i] & crossMask) + (father[i] & ~crossMask);
+
+                // Mutation (where a single bit is flipped)
+                if (i == mutationIndex) child[i] = (child[i] & ~mutationMask) + ((~child[i]) & mutationMask);
+            }
+        }
+
+        pthread_barrier_wait(gaThread->commonArgs->barrier);
+
+        if (threadId == 0) {
+            //control thread
+            if (enablePrintOutput) printf("Generation %u completed. Fitness indication = %f\n", currentGen + 1, bestFitnessForThread);
+            byte* temp = gaThread->commonArgs->populationGenes;
+            gaThread->commonArgs->populationGenes = gaThread->commonArgs->nextGenGenes;
+            gaThread->commonArgs->nextGenGenes = temp;
+        }
+
+        pthread_barrier_wait(gaThread->commonArgs->barrier);
+    }
+
+    if (threadId == 0) {
+        if (enablePrintOutput) printf("All generations completed\n");
+        byte* temp = gaThread->commonArgs->populationGenes;
+        gaThread->commonArgs->populationGenes = gaThread->commonArgs->nextGenGenes;
+        gaThread->commonArgs->nextGenGenes = temp;
+    }
+
+    pthread_barrier_wait(gaThread->commonArgs->barrier);
+
+    free(contenders);
+
+    return NULL;
 }
 
 GeneticAlgorithm_t GeneticAlgorithm(
@@ -27,7 +305,13 @@ GeneticAlgorithm_t GeneticAlgorithm(
         .groupSize = groupSize,
         .numberOfGenes = numberOfGenes,
         .numberOfGenerations = numberOfGenerations,
-        .block = false
+        .block = false,
+        .populationFitness = NULL,
+        .populationGenes = NULL,
+        .bestSolution = (BestSolution_t){
+            .fitness = 0.0,
+            .genes = NULL
+        }
     };
 
     if (groupSize > popSize) {
@@ -36,150 +320,12 @@ GeneticAlgorithm_t GeneticAlgorithm(
     }
 
     srand((unsigned)time(NULL));
-
     return ga;
 }
 
-
-
-// All other functions
-void GenerateChild(const GeneticAlgorithm_t* const ga, byte* child, const byte* const mother, const byte* const father) {
-    uint32_t bitPosition;
-    uint32_t crossMask = 0;
-    uint32_t crossIndex = ga->numberOfGenes + 1;
-    uint32_t mutateMask = 0;
-    uint32_t mutateIndex = ga->numberOfGenes + 1;
-    const byte bitsPerGene = 8;
-
-    if (GenerateRandomByte() % 100 < ga->crossoverRate) {
-        // crossover
-        bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
-        crossIndex = bitPosition / bitsPerGene; // get the index of the byte array in which the bit must be
-		crossMask = (1 << (bitPosition % bitsPerGene)) - 1; // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
-    }
-
-    if (GenerateRandomByte() % 100 < ga->mutationRate) {
-        //mutation
-		bitPosition = 1 + (GenerateRandomU32() % (bitsPerGene * ga->numberOfGenes - 1)); // N between 1 and bitsPerGene*NumberOfGenes - 1 (i.e. bit position between first and last bit of u32 array)
-
-		mutateIndex = bitPosition / bitsPerGene; // get the index of the byte array in which the bit must be
-		mutateMask = (1 << (bitPosition % (bitsPerGene - 1))); // get bitmask which will be all zeroes on 1 side and all 1s of the otherside, of the bit position
-    }
-
-    for (uint32_t i = 0; i < ga->numberOfGenes; i++) {
-		// crossover (aka where the mother's DNA meets the father's ... no, not like that)
-		if (i < crossIndex)
-			child[i] = mother[i];
-		else if (i > crossIndex)
-			child[i] = father[i];
-		else
-			child[i] = (mother[i] & crossMask) + (father[i] & ~crossMask);
-
-		// mutation (aka flip a single bit)
-		if (i == mutateIndex)
-			child[i] = (child[i] & ~mutateMask) + (~(child[i]) & mutateMask);
-	}
-}
-
-void CreatePopulation(GeneticAlgorithm_t* const ga) {
-    const uint64_t popGenesMemSize = ga->popSize * ga->numberOfGenes * sizeof(byte);
-    ga->populationGenes = (byte*) malloc(popGenesMemSize);
-    ga->populationFitness = (double*) malloc(ga->popSize * sizeof(double));
-
-
-    for (uint64_t i = 0; i < popGenesMemSize; i++) {
-        ga->populationGenes[i] = GenerateRandomByte();
-    }
-
-    ga->bestSolution.genes = (byte*) malloc(ga->numberOfGenes * sizeof(byte));
-    for (uint32_t i = 0; i < (ga->numberOfGenes * sizeof(byte)); i++) {
-        ga->bestSolution.genes[i] = GenerateRandomByte();
-    }
-
-    ga->bestSolution.fitness = ga->fitnessEvaluationFn(ga->bestSolution.genes);
-}
-
-void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePrintOutput) {
-	if (ga->block) {
-		printf("\nGenetic algorithm not initialised properly. Will not run.");
-		return;
-	}
-    
-	CreatePopulation(ga);
-
-	for (uint32_t i = 0; i < ga->numberOfGenerations; i++) {
-		EvaluatePopFitness(ga);
-		if (enablePrintOutput) printf("Generation %u completed. Best fitness = %f\n", i + 1, ga->bestSolution.fitness);
-		TournamentSelection(ga);
-	}
-}
-
-void EvaluatePopFitness(GeneticAlgorithm_t* const ga) {
-    // this could be easily parrallised! TODO: multithread
-    for (uint32_t i = 0; i < ga->popSize; i++) {
-        ga->populationFitness[i] = ga->fitnessEvaluationFn(
-            &(ga->populationGenes[i * ga->numberOfGenes])
-        );
-
-        if (ga->populationFitness[i] > ga->bestSolution.fitness) {
-            for (uint32_t j = 0; j < ga->numberOfGenes; j++) {
-                ga->bestSolution.genes[j] = ga->populationGenes[i * ga->numberOfGenes + j];
-                ga->bestSolution.fitness = ga->populationFitness[i];
-            }
-        }
-    }
-}
-
-void TournamentSelection(GeneticAlgorithm_t* const ga) {
-    // this may be parallelised? TODO: multithread
-    byte* nextGenGenes = (byte*) malloc(ga->popSize * ga->numberOfGenes * sizeof(byte));    
-    const byte *mother, *father;
-
-    for (uint32_t i = 0; i < ga->popSize; i++) {
-        mother = GetBestContenderGenes(ga, NULL);
-        father = GetBestContenderGenes(ga, mother);
-
-        GenerateChild(ga, &(nextGenGenes[i * ga->numberOfGenes]), mother, father);
-    }
-
+void FreeGeneticAlgorithm(GeneticAlgorithm_t* const ga) {
     free(ga->populationGenes);
-    ga->populationGenes = nextGenGenes;
-    
-}
-
-const byte* GetBestContenderGenes(const GeneticAlgorithm_t* const ga, const byte* const dontSelect) {
-    uint32_t* contenders = (uint32_t*) malloc(ga->groupSize * sizeof(uint32_t));
-    uint32_t bestContender;
-    enum bool isUniqueContender;
-
-    // get <groupSize> unique contenders
-    for (uint32_t i = 0; i < ga->groupSize; i++) {
-        isUniqueContender = false;
-        uint32_t randomSolution;
-        while (isUniqueContender == false) {
-            randomSolution = GenerateRandomU32() % ga->popSize;
-            // check that the contender isn't the same as in the "dontSelect" argument (i.e. already selected mother)
-            const byte* const randomSolutionGeneAddr = &(ga->populationGenes[randomSolution * ga->numberOfGenes]);
-            isUniqueContender = !(randomSolutionGeneAddr == dontSelect);
-
-            // check that the contender isn't the same as any of the other contenders selected
-            for (uint32_t j = 0; isUniqueContender == true && j < ga->groupSize; j++) {
-                if (contenders[j] == randomSolution) isUniqueContender = false;
-            }
-        }
-        contenders[i] = randomSolution;
-    }
-
-    // of the <groupSize> random contenders we just selected, find the best
-    bestContender = contenders[0];
-	for (uint32_t i = 0; i < ga->groupSize; i++) {
-		if ((ga->populationFitness[contenders[i]]) > (ga->populationFitness[bestContender])) {
-			bestContender = contenders[i];
-		}
-	}
-
-    free(contenders);
-    return &(ga->populationGenes[bestContender * ga->numberOfGenes]);
+    free(ga->populationFitness);
 }
 
 uint32_t GenerateRandomU32(void) {

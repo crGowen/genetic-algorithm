@@ -14,7 +14,7 @@ message("\tProcessor: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 # Building genalg library
 project(genalg)
 add_library(genalg SHARED ./genalg/main.c)
-target_compile_options(genalg PRIVATE -Wall -O2)
+target_compile_options(genalg PRIVATE -Wall -O2 -pthread)
 
 set(GENALG_LIB_INCLUDE "${CMAKE_SOURCE_DIR}/genalg/include")
 target_include_directories(genalg PRIVATE "${GENALG_LIB_INCLUDE}")

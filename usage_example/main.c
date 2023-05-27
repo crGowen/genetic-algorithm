@@ -6,7 +6,7 @@
 double eval(const byte* const genes) {
     double difference;
     // cast and deference 4 bytes per 32b integer
-    const uint32_t numbers[2] = { *((uint32_t*)(&genes[0])), *((uint32_t*)(&genes[4]))}; 
+    const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
     if (numbers[0] > numbers[1]) {
         difference = (numbers[0] - numbers[1]);
@@ -19,16 +19,16 @@ double eval(const byte* const genes) {
 int main(void) {
     // init algorithm with:
     GeneticAlgorithm_t ga = GeneticAlgorithm(
-        2000,       // 2000 population size
-        85,         // 85/100 (85%) mutation rate
+        20000,      // 20000 population size
+        60,         // 60/100 (60%) mutation rate
         25,         // 25/100 (25%) crossover rate
-        3,          // 3 tournament selection group size
+        2,          // 2 tournament selection group size
         8,          // 8 genes (1 gene = 1 byte)
         200,        // 200 generations
         &eval       // we point to our defined fitness evaluation "eval"
     );
 
-    RunGeneticAlgorithm(&ga, true); // run with console output=true
+    RunGeneticAlgorithm(&ga, 4, true); // run with 4 threads, and console output=true
 
 
     // cast and deference 4 bytes per 32b integer

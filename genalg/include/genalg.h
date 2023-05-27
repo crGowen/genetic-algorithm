@@ -23,8 +23,8 @@ GENALG_IMEX typedef struct {
 GENALG_IMEX typedef struct {
     BestSolution_t bestSolution;
     double (*fitnessEvaluationFn)(const byte * const genes);
-    byte* populationGenes;
     double* populationFitness;
+    byte* populationGenes;
     uint32_t popSize;
     enum bool block;
     uint16_t groupSize;
@@ -45,14 +45,4 @@ GENALG_IMEX GeneticAlgorithm_t GeneticAlgorithm(
     double (* const fitnessEvaluationFn)(const byte* const genes)
 );
 
-GENALG_IMEX void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const enum bool enablePrintOutput);
-
-uint32_t GenerateRandomU32(void);
-byte GenerateRandomByte(void);
-void GenerateChild(const GeneticAlgorithm_t* const ga, byte* child, const byte* const mother, const byte* const father);
-void CreatePopulation(GeneticAlgorithm_t* const ga);
-
-void EvaluatePopFitness(GeneticAlgorithm_t* const ga);
-void TournamentSelection(GeneticAlgorithm_t* const ga);
-
-const byte* GetBestContenderGenes(const GeneticAlgorithm_t* const ga, const byte* const dontSelect);
+GENALG_IMEX void RunGeneticAlgorithm(GeneticAlgorithm_t* const ga, const uint8_t numThreads, const enum bool enablePrintOutput);

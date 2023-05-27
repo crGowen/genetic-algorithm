@@ -2,38 +2,20 @@
 #include <stdio.h>
 #include <stdint.h>
 
-#ifdef _WIN32
-    #include <windows.h>
-    #include <psapi.h>
-
-    int GetMemUsage(void) {
-        HANDLE currentProcPseudohandle = GetCurrentProcess();
-        PROCESS_MEMORY_COUNTERS_EX procMemoryCtrs;
-
-        if (GetProcessMemoryInfo( currentProcPseudohandle, &procMemoryCtrs, sizeof(procMemoryCtrs)))
-        {
-            return procMemoryCtrs.PrivateUsage;
-        }
-
-        return 0;
-    }
-#else
-	//linux - unfortunately this doesn't appear to work on my kernel, so I'll abandon this for now.
-    #include <sys/resource.h>
-
-    int GetMemUsage(void) {
-        struct rusage resourceUsage;
-        getrusage(RUSAGE_SELF, &resourceUsage);
-        return resourceUsage.ru_idrss;
-    }
-#endif
+//linux - unfortunately this doesn't appear to work on my kernel, will need redo-ing
+#include <sys/resource.h>
+int GetMemUsage(void) {
+    struct rusage resourceUsage;
+    getrusage(RUSAGE_SELF, &resourceUsage);
+    return resourceUsage.ru_idrss;
+}
 
 
 // much code copied from usage_example
 double eval(const byte* const genes) {
     double difference;
     // cast and deference 4 bytes per 32b integer
-    const uint32_t numbers[2] = { *((uint32_t*)(&genes[0])), *((uint32_t*)(&genes[4]))}; 
+    const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
     if (numbers[0] > numbers[1]) {
         difference = (numbers[0] - numbers[1]);
@@ -58,7 +40,7 @@ int main(void) {
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, false);
+    RunGeneticAlgorithm(&ga, 1, false);
     int memoryUsageFromRun1 = GetMemUsage();
     FreeGeneticAlgorithm(&ga);
 
@@ -72,7 +54,7 @@ int main(void) {
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, false);
+    RunGeneticAlgorithm(&ga, 1, false);
     int memoryUsageFromRun2 = GetMemUsage();
 
     // cast and deference 4 bytes per 32b integer
