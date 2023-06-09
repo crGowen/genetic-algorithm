@@ -10,19 +10,32 @@ int GetMemUsage(void) {
     return resourceUsage.ru_idrss;
 }
 
+// Code for fitness function copied from usage example!
+enum bool checkIfPrime(uint32_t x) {
+    if (x <= 3) return true;
+    for (uint32_t i = 2; i < x; i++) {
+        if (x % i == 0) return false;
+    }
+    return true;
+}
 
-// much code copied from usage_example
+// optimise to find the HCF between two numbers
+// this is intentionally poorly optimised to highlight the use-case for multithreaded (performance-intensive fitness function)
 double eval(const byte* const genes) {
-    double difference;
     // cast and deference 4 bytes per 32b integer
+    const uint32_t moduloOperand = 100000;
     const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
-    if (numbers[0] > numbers[1]) {
-        difference = (numbers[0] - numbers[1]);
-    } else {
-        difference = (numbers[1] - numbers[0]);
-    }    
-    return difference * (-1);
+    if(
+        numbers[0] != numbers[1]
+        &&
+        checkIfPrime(numbers[0] % moduloOperand)
+        &&
+        checkIfPrime(numbers[1] % moduloOperand)
+    ) return numbers[0] > numbers[1]
+        ? numbers[0] - numbers[1]
+        : numbers[1] - numbers[0];
+    else return 0.0;
 }
 
 int main(void) {
@@ -31,46 +44,51 @@ int main(void) {
     printf("Running unit tests...\n");
 
     GeneticAlgorithm_t ga = GeneticAlgorithm(
-        8000,       // population size
+        4000,       // population size
         85,         // % mutation rate
         25,         // % crossover rate
         2,          // ts group size
         8,          // genes
-        2000,        // generations
+        1200,       // generations
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, 1, false);
+    RunGeneticAlgorithm(&ga, 4, false);
     int memoryUsageFromRun1 = GetMemUsage();
     FreeGeneticAlgorithm(&ga);
 
     ga = GeneticAlgorithm(
-        8000,       // population size
+        4000,       // population size
         85,         // % mutation rate
         25,         // % crossover rate
         2,          // ts group size
         8,          // genes
-        2000,        // generations
+        1200,       // generations
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, 1, false);
+    RunGeneticAlgorithm(&ga, 4, false);
     int memoryUsageFromRun2 = GetMemUsage();
 
+    const uint32_t moduloOperand = 100000;
     // cast and deference 4 bytes per 32b integer
     const uint32_t numbers[2] = { *((uint32_t*)(&(ga.bestSolution.genes[0]))), *((uint32_t*)(&(ga.bestSolution.genes[4])))};
     const double fitness = ga.bestSolution.fitness;
-    double difference;
-    
+
+    double res = 0.0;
+    if(
+        numbers[0] != numbers[1]
+        &&
+        checkIfPrime(numbers[0] % moduloOperand)
+        &&
+        checkIfPrime(numbers[1] % moduloOperand)
+    ) res = numbers[0] > numbers[1]
+        ? numbers[0] - numbers[1]
+        : numbers[1] - numbers[0];
+
     printf("TEST: Fitness value calculated correctly...");
-    if (numbers[0] > numbers[1]) {
-         difference = (numbers[0] - numbers[1]);
-    } else {
-         difference = (numbers[1] - numbers[0]);
-    }
-    difference *= (-1.0);
-    if (difference != fitness) {
-        printf("FAIL!\n\tDifference: %f\n\tFitness: %f\n", difference, fitness);
+    if (res != fitness) {
+        printf("FAIL!\n\tDifference: %f\n\tFitness: %f\n", res, fitness);
         result |= 32;
     } else printf("PASS.\n");
 
