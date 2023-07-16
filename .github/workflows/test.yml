@@ -13,4 +13,4 @@ jobs:
       - name: Build using CMake
         run: mkdir build && cd build && cmake .. && cmake --build . --target test
       - name: Run test
-        run: cd output && test.exe
+        run: cd output && ./test
