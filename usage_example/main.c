@@ -10,11 +10,13 @@ enum bool checkIfPrime(uint32_t x) {
     return true;
 }
 
-// optimise to find the HCF between two numbers
+// optimise to find the HCF between two numbers and difference
 // this is intentionally poorly optimised to highlight the use-case for multithreaded (performance-intensive fitness function)
+// runs approx. 3x faster on 4 threads than single-threaded, HOWEVER if using a very simple, low CPU-time fitness function, the difference will be less
+// with some fitness functions, running single-threaded will actually be faster
 double eval(const byte* const genes) {
     // cast and deference 4 bytes per 32b integer
-    const uint32_t moduloOperand = 100000;
+    const uint32_t moduloOperand = 50000;
     const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
     if(
@@ -42,7 +44,7 @@ int main(void) {
     );
 
     // run with 4 threads, and console output=true
-    // NOTE that running multithreaded will be LESS performant when the fitness function does not require much CPU time
+    // set the second argument to 1, to run SINGLE-THREADED mode
     RunGeneticAlgorithm(&ga, 4, true);
 
 

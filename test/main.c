@@ -1,13 +1,16 @@
 #include "genalg.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-//linux - unfortunately this doesn't appear to work on my kernel, will need redo-ing
-#include <sys/resource.h>
-int GetMemUsage(void) {
-    struct rusage resourceUsage;
-    getrusage(RUSAGE_SELF, &resourceUsage);
-    return resourceUsage.ru_idrss;
+uint32_t GetMemUsage(void) {
+    char filePath[32];
+    sprintf(filePath, "/proc/%i/stat", getpid());
+    FILE *fileHandle = fopen(filePath, "r");
+    uint32_t memSize = 0;
+    int res = fscanf(fileHandle, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d %*u %u", &memSize);
+    return res == 0 ? 0 : memSize;
 }
 
 // Code for fitness function copied from usage example!
@@ -19,11 +22,13 @@ enum bool checkIfPrime(uint32_t x) {
     return true;
 }
 
-// optimise to find the HCF between two numbers
+// optimise to find the HCF between two numbers and difference
 // this is intentionally poorly optimised to highlight the use-case for multithreaded (performance-intensive fitness function)
+// runs approx. 3x faster on 4 threads than single-threaded, HOWEVER if using a very simple, low CPU-time fitness function, the difference will be less
+// with some fitness functions, running single-threaded will actually be faster
 double eval(const byte* const genes) {
     // cast and deference 4 bytes per 32b integer
-    const uint32_t moduloOperand = 100000;
+    const uint32_t moduloOperand = 50000;
     const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
     if(
@@ -70,7 +75,7 @@ int main(void) {
     RunGeneticAlgorithm(&ga, 4, false);
     int memoryUsageFromRun2 = GetMemUsage();
 
-    const uint32_t moduloOperand = 100000;
+    const uint32_t moduloOperand = 50000;
     // cast and deference 4 bytes per 32b integer
     const uint32_t numbers[2] = { *((uint32_t*)(&(ga.bestSolution.genes[0]))), *((uint32_t*)(&(ga.bestSolution.genes[4])))};
     const double fitness = ga.bestSolution.fitness;
@@ -92,6 +97,9 @@ int main(void) {
         result |= 32;
     } else printf("PASS.\n");
 
+
+
+
     
     printf("TEST: Ensure no memory leak...");
     // if there is no memory leak, the memory that the OS reserved for Run1 will be reused for Run2, therefore little to no process memory change.
@@ -99,7 +107,15 @@ int main(void) {
     if (changeInMemory > 256) {
         printf("FAIL!\n\tMemory difference: %d\n", changeInMemory);
         result |= 16;
+    } else if (memoryUsageFromRun1 == 0  || memoryUsageFromRun2 == 0){
+        printf("FAIL!\n\tFailed reading /proc/[pid]/stat file\n");
+        result |= 16;
     } else printf("PASS.\n");
+
+
+
+
+
 
     printf("TEST: Optimisation working / fitness value close to 0...");
     if (fitness < -350.0) {
