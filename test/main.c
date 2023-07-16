@@ -1,46 +1,46 @@
 #include "genalg.h"
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
+#include <unistd.h>
 
-#ifdef _WIN32
-    #include <windows.h>
-    #include <psapi.h>
+uint32_t GetMemUsage(void) {
+    char filePath[32];
+    sprintf(filePath, "/proc/%i/stat", getpid());
+    FILE *fileHandle = fopen(filePath, "r");
+    uint32_t memSize = 0;
+    int res = fscanf(fileHandle, "%*d %*s %*c %*d %*d %*d %*d %*d %*u %*u %*u %*u %*u %*u %*u %*d %*d %*d %*d %*d %*d %*u %u", &memSize);
+    return res == 0 ? 0 : memSize;
+}
 
-    int GetMemUsage(void) {
-        HANDLE currentProcPseudohandle = GetCurrentProcess();
-        PROCESS_MEMORY_COUNTERS_EX procMemoryCtrs;
-
-        if (GetProcessMemoryInfo( currentProcPseudohandle, &procMemoryCtrs, sizeof(procMemoryCtrs)))
-        {
-            return procMemoryCtrs.PrivateUsage;
-        }
-
-        return 0;
+// Code for fitness function copied from usage example!
+enum bool checkIfPrime(uint32_t x) {
+    if (x <= 3) return true;
+    for (uint32_t i = 2; i < x; i++) {
+        if (x % i == 0) return false;
     }
-#else
-	//linux - unfortunately this doesn't appear to work on my kernel, so I'll abandon this for now.
-    #include <sys/resource.h>
+    return true;
+}
 
-    int GetMemUsage(void) {
-        struct rusage resourceUsage;
-        getrusage(RUSAGE_SELF, &resourceUsage);
-        return resourceUsage.ru_idrss;
-    }
-#endif
-
-
-// much code copied from usage_example
+// optimise to find the HCF between two numbers and difference
+// this is intentionally poorly optimised to highlight the use-case for multithreaded (performance-intensive fitness function)
+// runs approx. 3x faster on 4 threads than single-threaded, HOWEVER if using a very simple, low CPU-time fitness function, the difference will be less
+// with some fitness functions, running single-threaded will actually be faster
 double eval(const byte* const genes) {
-    double difference;
     // cast and deference 4 bytes per 32b integer
-    const uint32_t numbers[2] = { *((uint32_t*)(&genes[0])), *((uint32_t*)(&genes[4]))}; 
+    const uint32_t moduloOperand = 50000;
+    const uint32_t numbers[2] = { *((uint32_t*)(genes)), *((uint32_t*)(genes + 4)) };
 
-    if (numbers[0] > numbers[1]) {
-        difference = (numbers[0] - numbers[1]);
-    } else {
-        difference = (numbers[1] - numbers[0]);
-    }    
-    return difference * (-1);
+    if(
+        numbers[0] != numbers[1]
+        &&
+        checkIfPrime(numbers[0] % moduloOperand)
+        &&
+        checkIfPrime(numbers[1] % moduloOperand)
+    ) return numbers[0] > numbers[1]
+        ? numbers[0] - numbers[1]
+        : numbers[1] - numbers[0];
+    else return 0.0;
 }
 
 int main(void) {
@@ -49,48 +49,56 @@ int main(void) {
     printf("Running unit tests...\n");
 
     GeneticAlgorithm_t ga = GeneticAlgorithm(
-        8000,       // population size
+        4000,       // population size
         85,         // % mutation rate
         25,         // % crossover rate
         2,          // ts group size
         8,          // genes
-        2000,        // generations
+        1200,       // generations
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, false);
+    RunGeneticAlgorithm(&ga, 4, false);
     int memoryUsageFromRun1 = GetMemUsage();
     FreeGeneticAlgorithm(&ga);
 
     ga = GeneticAlgorithm(
-        8000,       // population size
+        4000,       // population size
         85,         // % mutation rate
         25,         // % crossover rate
         2,          // ts group size
         8,          // genes
-        2000,        // generations
+        1200,       // generations
         &eval       // defined fitness evaluation fn
     );
 
-    RunGeneticAlgorithm(&ga, false);
+    RunGeneticAlgorithm(&ga, 4, false);
     int memoryUsageFromRun2 = GetMemUsage();
 
+    const uint32_t moduloOperand = 50000;
     // cast and deference 4 bytes per 32b integer
     const uint32_t numbers[2] = { *((uint32_t*)(&(ga.bestSolution.genes[0]))), *((uint32_t*)(&(ga.bestSolution.genes[4])))};
     const double fitness = ga.bestSolution.fitness;
-    double difference;
-    
+
+    double res = 0.0;
+    if(
+        numbers[0] != numbers[1]
+        &&
+        checkIfPrime(numbers[0] % moduloOperand)
+        &&
+        checkIfPrime(numbers[1] % moduloOperand)
+    ) res = numbers[0] > numbers[1]
+        ? numbers[0] - numbers[1]
+        : numbers[1] - numbers[0];
+
     printf("TEST: Fitness value calculated correctly...");
-    if (numbers[0] > numbers[1]) {
-         difference = (numbers[0] - numbers[1]);
-    } else {
-         difference = (numbers[1] - numbers[0]);
-    }
-    difference *= (-1.0);
-    if (difference != fitness) {
-        printf("FAIL!\n\tDifference: %f\n\tFitness: %f\n", difference, fitness);
+    if (res != fitness) {
+        printf("FAIL!\n\tDifference: %f\n\tFitness: %f\n", res, fitness);
         result |= 32;
     } else printf("PASS.\n");
+
+
+
 
     
     printf("TEST: Ensure no memory leak...");
@@ -99,7 +107,15 @@ int main(void) {
     if (changeInMemory > 256) {
         printf("FAIL!\n\tMemory difference: %d\n", changeInMemory);
         result |= 16;
+    } else if (memoryUsageFromRun1 == 0  || memoryUsageFromRun2 == 0){
+        printf("FAIL!\n\tFailed reading /proc/[pid]/stat file\n");
+        result |= 16;
     } else printf("PASS.\n");
+
+
+
+
+
 
     printf("TEST: Optimisation working / fitness value close to 0...");
     if (fitness < -350.0) {

@@ -6,13 +6,11 @@ on:
 
 jobs:
   test:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v3
       - name: Build using CMake
-        shell: cmd
-        run: mkdir build && cd build && cmake .. && cmake --build . --target test --config Release
+        run: mkdir build && cd build && cmake .. && cmake --build . --target test
       - name: Run test
-        shell: cmd
         run: cd output && test.exe
